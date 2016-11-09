@@ -175,7 +175,7 @@ func createDNSRecord(serviceName string) error {
 	// This API Call looks for the Route53 DNS record for this service to update
 	paramsList := &route53.ListResourceRecordSetsInput{
 		HostedZoneId:          aws.String(configuration.HostedZoneId), // Required
-		MaxItems:              aws.String("10"),
+		MaxItems:              aws.String("1"),
 		StartRecordName:       aws.String(serviceName + "." + DNSName),
 		StartRecordType:       aws.String(route53.RRTypeA),
 	}
@@ -228,7 +228,7 @@ func deleteDNSRecord(serviceName string) error {
 	// This API Call looks for the Route53 DNS record for this service and docker ID to get the values to delete
 	paramsList := &route53.ListResourceRecordSetsInput{
 		HostedZoneId:          aws.String(configuration.HostedZoneId), // Required
-		MaxItems:              aws.String("10"),
+		MaxItems:              aws.String("1"),
 		StartRecordName:       aws.String(serviceName + "." + DNSName),
 		StartRecordType:       aws.String(route53.RRTypeA),
 	}
