@@ -184,14 +184,25 @@ func createDNSRecord(serviceName string) error {
 	if err != nil {
 		return err
 	}
+
+	aValues := make([]*route53.ResourceRecord, 0)
 	// Merge the A records.
-	aValues := resp.ResourceRecordSets[0].ResourceRecords
-	for _, aValue := range aValues {
-		if *aValue.Value == configuration.LocalIp {
-			fmt.Println("Record " + serviceName + "." + DNSName + " already has (" + configuration.LocalIp + ")")
-			return nil
+	if len(resp.ResourceRecordSets) > 0 {
+		for _, rr := range resp.ResourceRecordSets {
+			if strings.HasPrefix(*rr.Name, serviceName) {
+				for _, aValue := range rr.ResourceRecords {
+					if *aValue.Value == configuration.LocalIp {
+						fmt.Println("Record " + serviceName + "." + DNSName + " already has (" + configuration.LocalIp + ")")
+						return nil
+					}
+				}
+
+				aValues = rr.ResourceRecords
+				break
+			}
 		}
 	}
+
 	// the private IPv4 address of the machine providing the service
 	rr := route53.ResourceRecord{Value: aws.String(configuration.LocalIp)}
 	aValues = append(aValues, &rr)
@@ -237,9 +248,17 @@ func deleteDNSRecord(serviceName string) error {
 	if err != nil {
 		return err
 	}
+
+	aValues := make([]*route53.ResourceRecord, 0)
 	// Purge the A records of the local IP
-	aValues := resp.ResourceRecordSets[0].ResourceRecords
-	if aValues == nil {
+	for _, rr := range resp.ResourceRecordSets {
+	    if strings.HasPrefix(*rr.Name, serviceName) {
+			aValues = rr.ResourceRecords
+			break
+		}
+	}
+
+	if len(aValues) < 1 {
 		log.Error("Route53 Record doesn't exist")
 		return nil
 	}
@@ -259,26 +278,49 @@ func deleteDNSRecord(serviceName string) error {
 		return err
 	}
 
-	// This API call deletes the DNS record for the service for this docker ID
-	params := &route53.ChangeResourceRecordSetsInput{
-		ChangeBatch: &route53.ChangeBatch{
-			Changes: []*route53.Change{
-				{
-					Action: aws.String(route53.ChangeActionUpsert),
-					ResourceRecordSet: &route53.ResourceRecordSet{
-						Name: aws.String(serviceName + "." + DNSName),
-						Type: aws.String(route53.RRTypeA),
-						ResourceRecords: aValues,
-						TTL: aws.Int64(defaultTTL),
+	if len(aValues) > 1 {
+		// This API call modifies the A record and removes the local IP
+		params := &route53.ChangeResourceRecordSetsInput{
+			ChangeBatch: &route53.ChangeBatch{
+				Changes: []*route53.Change{
+					{
+						Action: aws.String(route53.ChangeActionUpsert),
+						ResourceRecordSet: &route53.ResourceRecordSet{
+							Name: aws.String(serviceName + "." + DNSName),
+							Type: aws.String(route53.RRTypeA),
+							ResourceRecords: aValues,
+							TTL: aws.Int64(defaultTTL),
+						},
 					},
 				},
 			},
-		},
-		HostedZoneId: aws.String(configuration.HostedZoneId),
+			HostedZoneId: aws.String(configuration.HostedZoneId),
+		}
+		_, err = r53.ChangeResourceRecordSets(params)
+		logErrorNoFatal(err)
+		fmt.Println("Record " + serviceName + "." + DNSName + " removed ( " + configuration.LocalIp + ")")
+	} else {
+		// This API call deletes the DNS record for the service for this docker ID
+		params := &route53.ChangeResourceRecordSetsInput{
+			ChangeBatch: &route53.ChangeBatch{
+				Changes: []*route53.Change{
+					{
+						Action: aws.String(route53.ChangeActionDelete),
+						ResourceRecordSet: &route53.ResourceRecordSet{
+							Name: aws.String(serviceName + "." + DNSName),
+							Type: aws.String(route53.RRTypeA),
+							ResourceRecords: resp.ResourceRecordSets[0].ResourceRecords,
+							TTL: aws.Int64(defaultTTL),
+						},
+					},
+				},
+			},
+			HostedZoneId: aws.String(configuration.HostedZoneId),
+		}
+		_, err = r53.ChangeResourceRecordSets(params)
+		logErrorNoFatal(err)
+		fmt.Println("Record " + serviceName + "." + DNSName + " deleted ( " + configuration.LocalIp + ")")
 	}
-	_, err = r53.ChangeResourceRecordSets(params)
-	logErrorNoFatal(err)
-	fmt.Println("Record " + serviceName + "." + DNSName + " deleted ( " + configuration.LocalIp + ")")
 	return err
 }
 
